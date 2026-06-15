@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}Add Entry | BudgetBloom{% endblock %}
+
+{% block content %}
+<section class="form-card">
+  <h1>Add a new transaction</h1>
+  <p>Record income or expense entries in GBP £.</p>
+  <form method="post">
+    <label for="title">Title</label>
+    <input id="title" name="title" type="text" required />
+
+    <label for="amount">Amount</label>
+    <input id="amount" name="amount" type="number" step="0.01" required placeholder="0.00" />
+
+    <label for="category">Category</label>
+    <select id="category" name="category">
+      {% for category in categories %}
+      <option value="{{ category }}">{{ category }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="radio-row">
+      <label><input type="radio" name="type" value="expense" checked /> Expense</label>
+      <label><input type="radio" name="type" value="income" /> Income</label>
+    </div>
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3"></textarea>
+
+    <button type="submit" class="btn btn-primary">Save transaction</button>
+  </form>
+</section>
+{% endblock %}

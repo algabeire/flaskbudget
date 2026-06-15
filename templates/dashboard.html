@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard | BudgetBloom{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+  <section class="panel welcome-panel">
+    <div>
+      <p class="eyebrow">Hello, {{ session.username }}</p>
+      <h1>Your GBP budget overview</h1>
+      <p>Quickly review income, expenses, and your current balance.</p>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('add_transaction') }}">Add new entry</a>
+  </section>
+
+  <section class="summary-row">
+    <div class="stat-card large">
+      <p>Balance</p>
+      <h2>{{ balance }}</h2>
+    </div>
+    <div class="stat-card">
+      <p>Total income</p>
+      <h3>{{ income }}</h3>
+    </div>
+    <div class="stat-card">
+      <p>Total expenses</p>
+      <h3>{{ expense }}</h3>
+    </div>
+  </section>
+
+  <section class="activity-panel">
+    <div class="panel-heading">
+      <h2>Transactions</h2>
+      <span>{{ transactions|length }} items</span>
+    </div>
+    {% if transactions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Title</th>
+          <th>Category</th>
+          <th>Amount</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in transactions %}
+        <tr>
+          <td>{{ tx.date }}</td>
+          <td>{{ tx.title }}</td>
+          <td>{{ tx.category }}</td>
+          <td class="amount {{ tx.type }}">{{ format_currency(tx.amount) }}</td>
+          <td class="actions">
+            <a class="link-button" href="{{ url_for('edit_transaction', transaction_id=tx.id) }}">Edit</a>
+            <a class="link-button danger" href="{{ url_for('delete_transaction', transaction_id=tx.id) }}">Delete</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <p>No entries yet. Add your first transaction to get started.</p>
+      <a class="btn btn-secondary" href="{{ url_for('add_transaction') }}">Add entry</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="notes-panel">
+    <div class="panel-heading">
+      <h2>Monthly trend</h2>
+    </div>
+    <div class="trend-list">
+      {% for month, total in monthly.items() %}
+      <div class="trend-item">
+        <span>{{ month }}</span>
+        <strong>{{ format_currency(total) }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="notes-panel chart-panel">
+    <div class="panel-heading">
+      <h2>Spending by category</h2>
+    </div>
+    {% if category_values %}
+    <canvas id="categoryPie" height="260"></canvas>
+    {% else %}
+    <div class="empty-state">
+      <p>Add an expense to see category spending on the pie chart.</p>
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+{% if category_values %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const categoryLabels = {{ category_labels|tojson }};
+  const categoryValues = {{ category_values|tojson }};
+  const colors = [
+    '#6de7b8', '#60c7ff', '#ffb39e', '#f5a7ff', '#ffdf7d', '#9ad4ff', '#c5a0ff', '#a1ffca'
+  ];
+
+  new Chart(document.getElementById('categoryPie'), {
+    type: 'pie',
+    data: {
+      labels: categoryLabels,
+      datasets: [{
+        data: categoryValues,
+        backgroundColor: colors.slice(0, categoryLabels.length),
+        borderColor: 'rgba(255,255,255,0.12)',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#e7ecff',
+          },
+        },
+      },
+    },
+  });
+</script>
+{% endif %}
+{% endblock %}

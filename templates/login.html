@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}Login | BudgetBloom{% endblock %}
+
+{% block content %}
+<section class="form-card">
+  <h1>Welcome back</h1>
+  <p>Log in and start managing your budget in GBP.</p>
+  <form method="post">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" required />
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required />
+
+    <button type="submit" class="btn btn-primary">Login</button>
+  </form>
+  <p class="small-text">New to BudgetBloom? <a href="{{ url_for('register') }}">Register now</a>.</p>
+</section>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Transaction | BudgetBloom{% endblock %}
+
+{% block content %}
+<section class="form-card">
+  <h1>Edit transaction</h1>
+  <p>Update the details for this entry.</p>
+  <form method="post">
+    <label for="title">Title</label>
+    <input id="title" name="title" type="text" required value="{{ transaction.title }}" />
+
+    <label for="amount">Amount</label>
+    <input id="amount" name="amount" type="number" step="0.01" required placeholder="0.00" value="{{ transaction.amount }}" />
+
+    <label for="category">Category</label>
+    <select id="category" name="category">
+      {% for category in categories %}
+      <option value="{{ category }}" {% if category == transaction.category %}selected{% endif %}>{{ category }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="radio-row">
+      <label><input type="radio" name="type" value="expense" {% if transaction.type == 'expense' %}checked{% endif %}/> Expense</label>
+      <label><input type="radio" name="type" value="income" {% if transaction.type == 'income' %}checked{% endif %}/> Income</label>
+    </div>
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3">{{ transaction.description }}</textarea>
+
+    <button type="submit" class="btn btn-primary">Save changes</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Welcome | BudgetBloom{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+  <div>
+    <span class="eyebrow">Beautiful budget tracking</span>
+    <h1>Track every pound with clarity.</h1>
+    <p>Stay on top of your spending with intuitive charts, quick entries, and a clean dashboard built in Flask.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ url_for('register') }}">Create account</a>
+      <a class="btn btn-secondary" href="{{ url_for('login') }}">Sign in</a>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="summary-card">
+      <p>Total balance</p>
+      <h2>£3,280.40</h2>
+    </div>
+    <div class="mini-grid">
+      <div class="stat-card">
+        <p>Income</p>
+        <strong>£2,500.00</strong>
+      </div>
+      <div class="stat-card">
+        <p>Expenses</p>
+        <strong>£1,420.00</strong>
+      </div>
+      <div class="stat-card">
+        <p>Next bill</p>
+        <strong>£320.00</strong>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
