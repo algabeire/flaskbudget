@@ -1,12 +1,22 @@
 import os
-import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_sqlalchemy import SQLAlchemy  # Added for Supabase
+from dotenv import load_dotenv           # Added to read your .env file
+
+# Load your verified cloud database link from .env
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
-app.config["DATABASE"] = os.path.join(app.root_path, "budget.db")
+
+# Configure your new Supabase PostgreSQL connection
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize the SQLAlchemy interface tool
+db = SQLAlchemy(app)
 
 CATEGORIES = [
     "Groceries",
@@ -19,11 +29,11 @@ CATEGORIES = [
     "Other",
 ]
 
-
+# Legacy SQLite connection function - we will migrate this next!
 def get_db_connection():
-    conn = sqlite3.connect(app.config["DATABASE"])
-    conn.row_factory = sqlite3.Row
-    return conn
+    # We will safely remove this once your new database models are set up
+    pass
+
 
 
 def init_db():
