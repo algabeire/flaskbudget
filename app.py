@@ -14,7 +14,7 @@ def normalize_database_url(url: str) -> str:
     """Remove an empty port segment like host:/path from a Postgres URL."""
     if not url:
         return url
-    return re.sub(r"(?<=@[^:/]+):(?=/)", "", url)
+    return re.sub(r"(@[^:/]+):(?=/)", r"\1", url)
 
 
 def get_database_url() -> str:
