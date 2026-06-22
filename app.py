@@ -34,13 +34,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 class User(db.Model):
+    __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
 class Transaction(db.Model):
+    __tablename__ = "transactions"
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     title = db.Column(db.String(120), nullable=False)
     category = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -165,9 +167,12 @@ def dashboard():
 
     monthly = {}
     for tx in transactions:
-        month = datetime.fromisoformat(tx["date"]).strftime("%b %Y")
+        tx_date = tx.date
+        if isinstance(tx_date, str):
+            tx_date = datetime.fromisoformat(tx_date)
+        month = tx_date.strftime("%b %Y")
         monthly.setdefault(month, 0.0)
-        monthly[month] += tx["amount"] if tx["type"] == "income" else -tx["amount"]
+        monthly[month] += tx.amount if tx.type == "income" else -tx.amount
 
     category_labels = [row["category"] for row in category_rows]
     category_values = [row["total"] or 0.0 for row in category_rows]
