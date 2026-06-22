@@ -1,15 +1,34 @@
 import os
+import re
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from sqlalchemy import func
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def normalize_database_url(url: str) -> str:
+    """Remove an empty port segment like host:/path from a Postgres URL."""
+    if not url:
+        return url
+    return re.sub(r"(?<=@[^:/]+):(?=/)", "", url)
+
+
+def get_database_url() -> str:
+    raw_url = os.getenv("DATABASE_URL") or os.getenv("SQLALCHEMY_DATABASE_URI")
+    if not raw_url:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Set Render environment variable DATABASE_URL to your Postgres URI."
+        )
+    return normalize_database_url(raw_url.strip())
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+app.config["SQLALCHEMY_DATABASE_URI"] = get_database_url()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -21,9 +40,14 @@ class User(db.Model):
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
     category = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    type = db.Column(db.String(20), nullable=False)
+    description = db.Column(db.Text)
+    user = db.relationship("User", backref="transactions")
 
 with app.app_context():
     db.create_all()
@@ -38,47 +62,6 @@ CATEGORIES = [
     "Income",
     "Other",
 ]
-
-
-# Legacy SQLite connection function - we will migrate this next!
-def get_db_connection():
-    # We will safely remove this once your new database models are set up
-    pass
-
-
-
-def init_db():
-    conn = get_db_connection()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            amount REAL NOT NULL,
-            category TEXT NOT NULL,
-            date TEXT NOT NULL,
-            type TEXT NOT NULL,
-            description TEXT,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
-def setup():
-    init_db()
 
 
 def login_required(view):
@@ -109,20 +92,16 @@ def register():
             flash("Please enter a username and password.", "warning")
             return redirect(url_for("register"))
 
-        conn = get_db_connection()
-        try:
-            conn.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)",
-                (username, generate_password_hash(password)),
-            )
-            conn.commit()
-            flash("Registration successful. You can now log in.", "success")
-            return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
             flash("That username is already taken.", "danger")
             return redirect(url_for("register"))
-        finally:
-            conn.close()
+
+        user = User(username=username, password=generate_password_hash(password))
+        db.session.add(user)
+        db.session.commit()
+        flash("Registration successful. You can now log in.", "success")
+        return redirect(url_for("login"))
 
     return render_template("register.html")
 
@@ -133,19 +112,15 @@ def login():
         username = request.form["username"].strip()
         password = request.form["password"].strip()
 
-        conn = get_db_connection()
-        user = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
-        conn.close()
+        user = User.query.filter_by(username=username).first()
 
-        if user is None or not check_password_hash(user["password"], password):
+        if user is None or not check_password_hash(user.password, password):
             flash("Invalid username or password.", "danger")
             return redirect(url_for("login"))
 
         session.clear()
-        session["user_id"] = user["id"]
-        session["username"] = user["username"]
+        session["user_id"] = user.id
+        session["username"] = user.username
         return redirect(url_for("dashboard"))
 
     return render_template("login.html")
@@ -161,21 +136,22 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    conn = get_db_connection()
-    transactions = conn.execute(
-        "SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC",
-        (session["user_id"],),
-    ).fetchall()
+    transactions = Transaction.query.filter_by(user_id=session["user_id"]).order_by(Transaction.date.desc()).all()
 
-    summary = conn.execute(
-        "SELECT type, SUM(amount) as total FROM transactions WHERE user_id = ? GROUP BY type",
-        (session["user_id"],),
-    ).fetchall()
-    category_rows = conn.execute(
-        "SELECT category, SUM(amount) AS total FROM transactions WHERE user_id = ? AND type = 'expense' GROUP BY category ORDER BY total DESC",
-        (session["user_id"],),
-    ).fetchall()
-    conn.close()
+    summary = (
+        db.session.query(Transaction.type, func.sum(Transaction.amount).label("total"))
+        .filter_by(user_id=session["user_id"])
+        .group_by(Transaction.type)
+        .all()
+    )
+
+    category_rows = (
+        db.session.query(Transaction.category, func.sum(Transaction.amount).label("total"))
+        .filter_by(user_id=session["user_id"], type="expense")
+        .group_by(Transaction.category)
+        .order_by(func.sum(Transaction.amount).desc())
+        .all()
+    )
 
     income = 0.0
     expense = 0.0
@@ -213,14 +189,9 @@ def dashboard():
 @app.route("/edit/<int:transaction_id>", methods=["GET", "POST"])
 @login_required
 def edit_transaction(transaction_id):
-    conn = get_db_connection()
-    transaction = conn.execute(
-        "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-        (transaction_id, session["user_id"]),
-    ).fetchone()
+    transaction = Transaction.query.filter_by(id=transaction_id, user_id=session["user_id"]).first()
 
     if transaction is None:
-        conn.close()
         flash("Transaction not found.", "danger")
         return redirect(url_for("dashboard"))
 
@@ -233,35 +204,24 @@ def edit_transaction(transaction_id):
 
         if not title or not amount:
             flash("Please add a title and amount.", "warning")
-            conn.close()
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
         try:
             amount_value = abs(float(amount))
         except ValueError:
             flash("Please enter a valid number for amount.", "danger")
-            conn.close()
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
-        conn.execute(
-            "UPDATE transactions SET title = ?, amount = ?, category = ?, type = ?, description = ? WHERE id = ? AND user_id = ?",
-            (
-                title,
-                amount_value,
-                category,
-                tx_type,
-                description,
-                transaction_id,
-                session["user_id"],
-            ),
-        )
-        conn.commit()
-        conn.close()
+        transaction.title = title
+        transaction.amount = amount_value
+        transaction.category = category
+        transaction.type = tx_type
+        transaction.description = description
+        db.session.commit()
 
         flash("Transaction updated successfully.", "success")
         return redirect(url_for("dashboard"))
 
-    conn.close()
     return render_template(
         "edit_expense.html",
         transaction=transaction,
@@ -289,21 +249,17 @@ def add_transaction():
             flash("Please enter a valid number for amount.", "danger")
             return redirect(url_for("add_transaction"))
 
-        conn = get_db_connection()
-        conn.execute(
-            "INSERT INTO transactions (user_id, title, amount, category, date, type, description) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                session["user_id"],
-                title,
-                amount_value,
-                category,
-                datetime.utcnow().date().isoformat(),
-                tx_type,
-                description,
-            ),
+        transaction = Transaction(
+            user_id=session["user_id"],
+            title=title,
+            amount=amount_value,
+            category=category,
+            date=datetime.now(timezone.utc),
+            type=tx_type,
+            description=description,
         )
-        conn.commit()
-        conn.close()
+        db.session.add(transaction)
+        db.session.commit()
 
         flash("Transaction added successfully.", "success")
         return redirect(url_for("dashboard"))
@@ -314,17 +270,13 @@ def add_transaction():
 @app.route("/delete/<int:transaction_id>")
 @login_required
 def delete_transaction(transaction_id):
-    conn = get_db_connection()
-    conn.execute(
-        "DELETE FROM transactions WHERE id = ? AND user_id = ?",
-        (transaction_id, session["user_id"]),
-    )
-    conn.commit()
-    conn.close()
+    transaction = Transaction.query.filter_by(id=transaction_id, user_id=session["user_id"]).first()
+    if transaction:
+        db.session.delete(transaction)
+        db.session.commit()
     flash("Transaction removed.", "info")
     return redirect(url_for("dashboard"))
 
 
 if __name__ == "__main__":
-    setup()
     app.run(debug=True)
