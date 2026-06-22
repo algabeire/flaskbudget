@@ -1,31 +1,19 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_sqlalchemy import SQLAlchemy  # Added for Supabase
-from dotenv import load_dotenv           # Added to read your .env file
+from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
 
-# Load your verified cloud database link from .env
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Configure your new Supabase PostgreSQL connection
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Initialize the SQLAlchemy interface tool
 db = SQLAlchemy(app)
 
-# Line 15
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Line 19
-db = SQLAlchemy(app)
-
-# Line 21 - PASTE START
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -35,14 +23,10 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     category = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    date = db.Column(db.DateTime, default=datetime.utcnow)
+    date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
 with app.app_context():
     db.create_all()
-# PASTE END
-
-# Line 37
-CATEGORIES = [
 
 CATEGORIES = [
     "Groceries",
@@ -54,6 +38,7 @@ CATEGORIES = [
     "Income",
     "Other",
 ]
+
 
 # Legacy SQLite connection function - we will migrate this next!
 def get_db_connection():
