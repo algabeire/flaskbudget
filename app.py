@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from sqlalchemy import func
@@ -157,11 +158,11 @@ def dashboard():
 
     income = 0.0
     expense = 0.0
-    for row in summary:
-        if row["type"] == "income":
-            income = row["total"] or 0.0
+    for type_, total in summary:
+        if type_ == "income":
+            income = total or 0.0
         else:
-            expense = row["total"] or 0.0
+            expense = total or 0.0
 
     balance = income - expense
 
@@ -174,8 +175,8 @@ def dashboard():
         monthly.setdefault(month, 0.0)
         monthly[month] += tx.amount if tx.type == "income" else -tx.amount
 
-    category_labels = [row["category"] for row in category_rows]
-    category_values = [row["total"] or 0.0 for row in category_rows]
+    category_labels = [row[0] for row in category_rows]
+    category_values = [row[1] or 0.0 for row in category_rows]
 
     return render_template(
         "dashboard.html",
@@ -238,36 +239,46 @@ def edit_transaction(transaction_id):
 @login_required
 def add_transaction():
     if request.method == "POST":
-        title = request.form["title"].strip()
-        amount = request.form["amount"].strip()
-        category = request.form["category"]
-        tx_type = request.form["type"]
-        description = request.form.get("description", "").strip()
-
-        if not title or not amount:
-            flash("Please add a title and amount.", "warning")
-            return redirect(url_for("add_transaction"))
-
         try:
-            amount_value = abs(float(amount))
-        except ValueError:
-            flash("Please enter a valid number for amount.", "danger")
+            title = request.form["title"].strip()
+            amount = request.form["amount"].strip()
+            category = request.form["category"]
+            tx_type = request.form["type"]
+            description = request.form.get("description", "").strip()
+
+            if not title or not amount:
+                flash("Please add a title and amount.", "warning")
+                return redirect(url_for("add_transaction"))
+
+            try:
+                amount_value = abs(float(amount))
+            except ValueError:
+                flash("Please enter a valid number for amount.", "danger")
+                return redirect(url_for("add_transaction"))
+
+            transaction = Transaction(
+                user_id=session.get("user_id"),
+                title=title,
+                amount=amount_value,
+                category=category,
+                date=datetime.now(timezone.utc),
+                type=tx_type,
+                description=description,
+            )
+            db.session.add(transaction)
+            db.session.commit()
+
+            flash("Transaction added successfully.", "success")
+            return redirect(url_for("dashboard"))
+        except Exception as exc:
+            # Roll back and log the exception so the deploy doesn't return a generic 500 without details
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            print("Error saving transaction:", exc, file=sys.stderr)
+            flash(f"Could not save transaction: {exc}", "danger")
             return redirect(url_for("add_transaction"))
-
-        transaction = Transaction(
-            user_id=session["user_id"],
-            title=title,
-            amount=amount_value,
-            category=category,
-            date=datetime.now(timezone.utc),
-            type=tx_type,
-            description=description,
-        )
-        db.session.add(transaction)
-        db.session.commit()
-
-        flash("Transaction added successfully.", "success")
-        return redirect(url_for("dashboard"))
 
     return render_template("add_expense.html", categories=CATEGORIES)
 
