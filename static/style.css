@@ -404,4 +404,14 @@ nav a:hover {
   nav {
     justify-content: flex-end;
   }
+
+  .activity-panel th,
+  .activity-panel td {
+    padding: 12px 8px;
+    vertical-align: middle;
+  }
+
+  .actions {
+    justify-content: center;
+  }
 }
