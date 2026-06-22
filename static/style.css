@@ -223,6 +223,7 @@ nav a:hover {
   text-align: left;
   padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
 }
 
 .activity-panel th {
