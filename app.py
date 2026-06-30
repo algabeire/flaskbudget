@@ -66,6 +66,7 @@ CATEGORIES = [
     "Utilis",
     "Shopping",
     "Telecom",
+    "Gift",
     "Eating Out",
 ]
 
