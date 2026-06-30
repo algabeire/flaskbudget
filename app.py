@@ -57,13 +57,16 @@ with app.app_context():
 
 CATEGORIES = [
     "Groceries",
-    "Bills",
     "Rent",
     "Transport",
     "Entertainment",
     "Savings",
     "Income",
     "Other",
+    "Utilis",
+    "Shopping",
+    "Telecom",
+    "Eating Out",
 ]
 
 
