@@ -10,29 +10,31 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def normalize_database_url(url: str) -> str:
-    """Remove an empty port segment like host:/path from a Postgres URL."""
-    if not url:
-        return url
-    return re.sub(r"(@[^:/]+):(?=/)", r"\1", url)
-
-
-def get_database_url() -> str:
-    raw_url = os.getenv("DATABASE_URL") or os.getenv("SQLALCHEMY_DATABASE_URI")
-    if not raw_url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Set Render environment variable DATABASE_URL to your Postgres URI."
-        )
-    return normalize_database_url(raw_url.strip())
-
-
+# 1. Initialize the Flask application FIRST
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
-app.config["SQLALCHEMY_DATABASE_URI"] = get_database_url()
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# 2. --- DATABASE SETUP (SUPABASE / LOCAL FALLBACK) ---
+raw_db_url = os.getenv('DATABASE_URL')
+if raw_db_url and raw_db_url.strip():
+    db_url = raw_db_url.strip()
+    # Ensure proper dialect for SQLAlchemy compatibility
+    if db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    # Simple validation for PostgreSQL URL (scheme://user:pass@host[:port]/dbname)
+    import re
+    if not re.match(r'^postgresql://[^@]+@[^:/]+(?::\d+)?/[^/]+', db_url):
+        db_url = 'sqlite:///local_budget.db'
+else:
+    db_url = 'sqlite:///local_budget.db'
+
+# 3. Apply the database URI configuration to the app
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 4. Initialize SQLAlchemy with the app object
 db = SQLAlchemy(app)
+
 
 class User(db.Model):
     __tablename__ = "users"
