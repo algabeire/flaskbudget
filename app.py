@@ -16,17 +16,16 @@ app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
 
 # 2. --- DATABASE SETUP (SUPABASE / LOCAL FALLBACK) ---
 raw_db_url = os.getenv('DATABASE_URL')
+
 if raw_db_url and raw_db_url.strip():
     db_url = raw_db_url.strip()
-    # Ensure proper dialect for SQLAlchemy compatibility
+    # Fix the legacy 'postgres://' prefix required by SQLAlchemy 1.4+
     if db_url.startswith('postgres://'):
         db_url = db_url.replace('postgres://', 'postgresql://', 1)
-    # Simple validation for PostgreSQL URL (scheme://user:pass@host[:port]/dbname)
-    import re
-    if not re.match(r'^postgresql://[^@]+@[^:/]+(?::\d+)?/[^/]+', db_url):
-        db_url = 'sqlite:///local_budget.db'
 else:
+    # Only fall back to SQLite if DATABASE_URL is completely missing or empty
     db_url = 'sqlite:///local_budget.db'
+
 
 # 3. Apply the database URI configuration to the app
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
@@ -34,6 +33,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 4. Initialize SQLAlchemy with the app object
 db = SQLAlchemy(app)
+
+
+
+
+
 
 
 class User(db.Model):
