@@ -204,24 +204,41 @@ def edit_transaction(transaction_id):
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=session["user_id"]).first()
 
     if transaction is None:
-        flash("Transaction not found.", "danger")
+        msg = "Transaction not found."
+        if request.is_json:
+            return {"error": msg}, 404
+        flash(msg, "danger")
         return redirect(url_for("dashboard"))
 
     if request.method == "POST":
-        title = request.form["title"].strip()
-        amount = request.form["amount"].strip()
-        category = request.form["category"]
-        tx_type = request.form["type"]
-        description = request.form.get("description", "").strip()
+        if request.is_json:
+            data = request.get_json()
+            title = data.get('title', '').strip()
+            amount = str(data.get('amount', '')).strip()
+            category = data.get('category')
+            tx_type = data.get('type')
+            description = data.get('description', '').strip()
+        else:
+            title = request.form["title"].strip()
+            amount = request.form["amount"].strip()
+            category = request.form["category"]
+            tx_type = request.form["type"]
+            description = request.form.get("description", "").strip()
 
         if not title or not amount:
-            flash("Please add a title and amount.", "warning")
+            msg = "Please add a title and amount."
+            if request.is_json:
+                return {"error": msg}, 400
+            flash(msg, "warning")
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
         try:
             amount_value = abs(float(amount))
         except ValueError:
-            flash("Please enter a valid number for amount.", "danger")
+            msg = "Please enter a valid number for amount."
+            if request.is_json:
+                return {"error": msg}, 400
+            flash(msg, "danger")
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
         transaction.title = title
@@ -231,7 +248,10 @@ def edit_transaction(transaction_id):
         transaction.description = description
         db.session.commit()
 
-        flash("Transaction updated successfully.", "success")
+        success_msg = "Transaction updated successfully."
+        if request.is_json:
+            return {"message": success_msg, "transaction_id": transaction.id}, 200
+        flash(success_msg, "success")
         return redirect(url_for("dashboard"))
 
     return render_template(
@@ -296,6 +316,8 @@ def delete_transaction(transaction_id):
     if transaction:
         db.session.delete(transaction)
         db.session.commit()
+    if request.is_json:
+        return {"message": "Transaction removed."}, 200
     flash("Transaction removed.", "info")
     return redirect(url_for("dashboard"))
 
