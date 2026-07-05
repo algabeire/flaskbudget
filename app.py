@@ -2,63 +2,55 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path  # <-- Added for absolute path resolution
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from sqlalchemy import func
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 
-load_dotenv()
+# Force Python to find the .env file in the exact same folder as this app.py file
+basedir = Path(__file__).resolve().parent
+load_dotenv(basedir / ".env")
 
 # 1. Initialize the Flask application FIRST
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL",
+    os.getenv("SQLALCHEMY_DATABASE_URI", "sqlite:///budget.db"),
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # 2. --- DATABASE SETUP (SUPABASE / LOCAL FALLBACK) ---
-raw_db_url = os.getenv('DATABASE_URL')
+# 2. --- DATABASE FORCED SYNC ---
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-if raw_db_url and raw_db_url.strip():
-    db_url = raw_db_url.strip()
-    # Fix the legacy 'postgres://' prefix required by SQLAlchemy 1.4+
-    if db_url.startswith('postgres://'):
-        db_url = db_url.replace('postgres://', 'postgresql://', 1)
-else:
-    # Only fall back to SQLite if DATABASE_URL is completely missing or empty
-    db_url = 'sqlite:///local_budget.db'
-
-
-# 3. Apply the database URI configuration to the app
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# 4. Initialize SQLAlchemy with the app object
+# 3. Initialize SQLAlchemy
 db = SQLAlchemy(app)
 
 
-
-
-
-
-
 class User(db.Model):
-    __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
+
 class Transaction(db.Model):
-    __tablename__ = "transactions"
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     title = db.Column(db.String(120), nullable=False)
-    category = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    category = db.Column(db.String(80), nullable=False)
+    date = db.Column(db.DateTime, nullable=False, default=datetime.now(timezone.utc))
     type = db.Column(db.String(20), nullable=False)
-    description = db.Column(db.Text)
-    user = db.relationship("User", backref="transactions")
+    description = db.Column(db.Text, nullable=True)
+
+    user = db.relationship("User", backref=db.backref("transactions", lazy=True))
+
 
 with app.app_context():
+    print("\n--- DEBUG: CONNECTED TO DATABASE SUCCESS ---\n")
     db.create_all()
 
 CATEGORIES = [
