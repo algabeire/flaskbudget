@@ -1,34 +1,58 @@
 import os
-import re
-import sys
 from datetime import datetime, timezone
-from pathlib import Path  # <-- Added for absolute path resolution
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
-from sqlalchemy import func
-from werkzeug.security import generate_password_hash, check_password_hash
-from flask_sqlalchemy import SQLAlchemy
-from dotenv import load_dotenv
+from pathlib import Path
+from functools import wraps
 
-# Force Python to find the .env file in the exact same folder as this app.py file
+from dotenv import load_dotenv
+from flask import (
+    Flask,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
+from werkzeug.security import check_password_hash, generate_password_hash
+
+# --------------------------------------------------
+# Load environment variables
+# --------------------------------------------------
+
 basedir = Path(__file__).resolve().parent
 load_dotenv(basedir / ".env")
 
-# 1. Initialize the Flask application FIRST
+# --------------------------------------------------
+# Flask configuration
+# --------------------------------------------------
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "supersecretbudgetkey")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL",
-    os.getenv("SQLALCHEMY_DATABASE_URI", "sqlite:///budget.db"),
+
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", os.urandom(32))
+
+database_url = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("SQLALCHEMY_DATABASE_URI")
 )
+
+# Fix PostgreSQL URL used by Render/Heroku
+if database_url and database_url.startswith("postgres://"):
+    database_url = database_url.replace(
+        "postgres://",
+        "postgresql://",
+        1,
+    )
+
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    database_url
+    or f"sqlite:///{basedir / 'budget.db'}"
+)
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# 2. --- DATABASE SETUP (SUPABASE / LOCAL FALLBACK) ---
-# 2. --- DATABASE FORCED SYNC ---
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-# 3. Initialize SQLAlchemy
 db = SQLAlchemy(app)
-
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -42,16 +66,24 @@ class Transaction(db.Model):
     title = db.Column(db.String(120), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(80), nullable=False)
-    date = db.Column(db.DateTime, nullable=False, default=datetime.now(timezone.utc))
+    date = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc)
+    )
     type = db.Column(db.String(20), nullable=False)
     description = db.Column(db.Text, nullable=True)
 
-    user = db.relationship("User", backref=db.backref("transactions", lazy=True))
+    user = db.relationship(
+        "User",
+        backref=db.backref("transactions", lazy=True)
+    )
 
 
 with app.app_context():
-    print("\n--- DEBUG: CONNECTED TO DATABASE SUCCESS ---\n")
+    print("\n--- DATABASE CONNECTED SUCCESSFULLY ---\n")
     db.create_all()
+
 
 CATEGORIES = [
     "Groceries",
@@ -61,7 +93,7 @@ CATEGORIES = [
     "Savings",
     "Income",
     "Other",
-    "Utilis",
+    "Utilities",
     "Shopping",
     "Telecom",
     "Gift",
@@ -70,17 +102,25 @@ CATEGORIES = [
 
 
 def login_required(view):
-    def wrapped_view(**kwargs):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
         if "user_id" not in session:
             return redirect(url_for("login"))
-        return view(**kwargs)
+        return view(*args, **kwargs)
 
-    wrapped_view.__name__ = view.__name__
     return wrapped_view
 
 
 def format_currency(value):
     return f"£{value:,.2f}"
+
+
+@app.context_processor
+def inject_helpers():
+    return {
+        "format_currency": format_currency,
+        "categories": CATEGORIES,
+    }
 
 
 @app.route("/")
@@ -93,18 +133,25 @@ def register():
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"].strip()
+
         if not username or not password:
             flash("Please enter a username and password.", "warning")
             return redirect(url_for("register"))
 
         existing_user = User.query.filter_by(username=username).first()
+
         if existing_user:
             flash("That username is already taken.", "danger")
             return redirect(url_for("register"))
 
-        user = User(username=username, password=generate_password_hash(password))
+        user = User(
+            username=username,
+            password=generate_password_hash(password)
+        )
+
         db.session.add(user)
         db.session.commit()
+
         flash("Registration successful. You can now log in.", "success")
         return redirect(url_for("login"))
 
@@ -126,6 +173,7 @@ def login():
         session.clear()
         session["user_id"] = user.id
         session["username"] = user.username
+
         return redirect(url_for("dashboard"))
 
     return render_template("login.html")
@@ -141,18 +189,32 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    transactions = Transaction.query.filter_by(user_id=session["user_id"]).order_by(Transaction.date.desc()).all()
+    transactions = (
+        Transaction.query
+        .filter_by(user_id=session["user_id"])
+        .order_by(Transaction.date.desc())
+        .all()
+    )
 
     summary = (
-        db.session.query(Transaction.type, func.sum(Transaction.amount).label("total"))
+        db.session.query(
+            Transaction.type,
+            func.sum(Transaction.amount).label("total")
+        )
         .filter_by(user_id=session["user_id"])
         .group_by(Transaction.type)
         .all()
     )
 
     category_rows = (
-        db.session.query(Transaction.category, func.sum(Transaction.amount).label("total"))
-        .filter_by(user_id=session["user_id"], type="expense")
+        db.session.query(
+            Transaction.category,
+            func.sum(Transaction.amount).label("total")
+        )
+        .filter_by(
+            user_id=session["user_id"],
+            type="expense"
+        )
         .group_by(Transaction.category)
         .order_by(func.sum(Transaction.amount).desc())
         .all()
@@ -160,25 +222,28 @@ def dashboard():
 
     income = 0.0
     expense = 0.0
-    for type_, total in summary:
-        if type_ == "income":
+
+    for tx_type, total in summary:
+        if tx_type == "income":
             income = total or 0.0
-        else:
+        elif tx_type == "expense":
             expense = total or 0.0
 
     balance = income - expense
 
     monthly = {}
+
     for tx in transactions:
-        tx_date = tx.date
-        if isinstance(tx_date, str):
-            tx_date = datetime.fromisoformat(tx_date)
-        month = tx_date.strftime("%b %Y")
+        month = tx.date.strftime("%b %Y")
         monthly.setdefault(month, 0.0)
-        monthly[month] += tx.amount if tx.type == "income" else -tx.amount
+
+        if tx.type == "income":
+            monthly[month] += tx.amount
+        else:
+            monthly[month] -= tx.amount
 
     category_labels = [row[0] for row in category_rows]
-    category_values = [row[1] or 0.0 for row in category_rows]
+    category_values = [float(row[1] or 0) for row in category_rows]
 
     return render_template(
         "dashboard.html",
@@ -187,8 +252,6 @@ def dashboard():
         expense=format_currency(expense),
         balance=format_currency(balance),
         monthly=monthly,
-        format_currency=format_currency,
-        categories=CATEGORIES,
         category_labels=category_labels,
         category_values=category_values,
     )
@@ -197,44 +260,40 @@ def dashboard():
 @app.route("/edit/<int:transaction_id>", methods=["GET", "POST"])
 @login_required
 def edit_transaction(transaction_id):
-    transaction = Transaction.query.filter_by(id=transaction_id, user_id=session["user_id"]).first()
+    transaction = Transaction.query.filter_by(
+        id=transaction_id,
+        user_id=session["user_id"]
+    ).first()
 
     if transaction is None:
-        msg = "Transaction not found."
-        if request.is_json:
-            return {"error": msg}, 404
-        flash(msg, "danger")
+        flash("Transaction not found.", "danger")
         return redirect(url_for("dashboard"))
 
     if request.method == "POST":
-        if request.is_json:
-            data = request.get_json()
-            title = data.get('title', '').strip()
-            amount = str(data.get('amount', '')).strip()
-            category = data.get('category')
-            tx_type = data.get('type')
-            description = data.get('description', '').strip()
-        else:
-            title = request.form["title"].strip()
-            amount = request.form["amount"].strip()
-            category = request.form["category"]
-            tx_type = request.form["type"]
-            description = request.form.get("description", "").strip()
+        title = request.form["title"].strip()
+        amount = request.form["amount"].strip()
+        category = request.form["category"]
+        tx_type = request.form["type"].lower()
+        description = request.form.get("description", "").strip()
 
         if not title or not amount:
-            msg = "Please add a title and amount."
-            if request.is_json:
-                return {"error": msg}, 400
-            flash(msg, "warning")
+            flash("Please add a title and amount.", "warning")
+            return redirect(url_for("edit_transaction", transaction_id=transaction_id))
+
+        if category not in CATEGORIES:
+            flash("Invalid category.", "danger")
+            return redirect(url_for("edit_transaction", transaction_id=transaction_id))
+
+        if tx_type not in ("income", "expense"):
+            flash("Invalid transaction type.", "danger")
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
         try:
-            amount_value = abs(float(amount))
+            amount_value = float(amount)
+            if amount_value <= 0:
+                raise ValueError
         except ValueError:
-            msg = "Please enter a valid number for amount."
-            if request.is_json:
-                return {"error": msg}, 400
-            flash(msg, "danger")
+            flash("Amount must be greater than zero.", "danger")
             return redirect(url_for("edit_transaction", transaction_id=transaction_id))
 
         transaction.title = title
@@ -242,79 +301,79 @@ def edit_transaction(transaction_id):
         transaction.category = category
         transaction.type = tx_type
         transaction.description = description
+
         db.session.commit()
 
-        success_msg = "Transaction updated successfully."
-        if request.is_json:
-            return {"message": success_msg, "transaction_id": transaction.id}, 200
-        flash(success_msg, "success")
+        flash("Transaction updated successfully.", "success")
         return redirect(url_for("dashboard"))
 
     return render_template(
         "edit_expense.html",
         transaction=transaction,
-        categories=CATEGORIES,
     )
 
 
-@app.route("/add", methods=["GET", "POST"])
+@app.route("/add", methods=["POST"])
 @login_required
-def add_transaction():
-    if request.method == "POST":
-        try:
-            title = request.form["title"].strip()
-            amount = request.form["amount"].strip()
-            category = request.form["category"]
-            tx_type = request.form["type"]
-            description = request.form.get("description", "").strip()
+def add_transaction_view():
+    title = request.form.get("title", "").strip()
+    amount = request.form.get("amount", "").strip()
+    category = request.form.get("category")
+    tx_type = request.form.get("type", "").lower()
+    description = request.form.get("description", "").strip()
 
-            if not title or not amount:
-                flash("Please add a title and amount.", "warning")
-                return redirect(url_for("add_transaction"))
+    if not title or not amount:
+        flash("Please enter a title and amount.", "warning")
+        return redirect(url_for("dashboard"))
 
-            try:
-                amount_value = abs(float(amount))
-            except ValueError:
-                flash("Please enter a valid number for amount.", "danger")
-                return redirect(url_for("add_transaction"))
+    if category not in CATEGORIES:
+        flash("Invalid category.", "danger")
+        return redirect(url_for("dashboard"))
 
-            transaction = Transaction(
-                user_id=session.get("user_id"),
-                title=title,
-                amount=amount_value,
-                category=category,
-                date=datetime.now(timezone.utc),
-                type=tx_type,
-                description=description,
-            )
-            db.session.add(transaction)
-            db.session.commit()
+    if tx_type not in ("income", "expense"):
+        flash("Invalid transaction type.", "danger")
+        return redirect(url_for("dashboard"))
 
-            flash("Transaction added successfully.", "success")
-            return redirect(url_for("dashboard"))
-        except Exception as exc:
-            # Roll back and log the exception so the deploy doesn't return a generic 500 without details
-            try:
-                db.session.rollback()
-            except Exception:
-                pass
-            print("Error saving transaction:", exc, file=sys.stderr)
-            flash(f"Could not save transaction: {exc}", "danger")
-            return redirect(url_for("add_transaction"))
+    try:
+        amount_value = float(amount)
+        if amount_value <= 0:
+            raise ValueError
+    except ValueError:
+        flash("Please enter a valid amount greater than zero.", "danger")
+        return redirect(url_for("dashboard"))
 
-    return render_template("add_expense.html", categories=CATEGORIES)
+    transaction = Transaction(
+        user_id=session["user_id"],
+        title=title,
+        amount=amount_value,
+        category=category,
+        type=tx_type,
+        description=description,
+    )
+
+    db.session.add(transaction)
+    db.session.commit()
+
+    flash("Transaction added successfully.", "success")
+    return redirect(url_for("dashboard"))
 
 
-@app.route("/delete/<int:transaction_id>")
+@app.route("/delete/<int:transaction_id>", methods=["POST"])
 @login_required
 def delete_transaction(transaction_id):
-    transaction = Transaction.query.filter_by(id=transaction_id, user_id=session["user_id"]).first()
-    if transaction:
-        db.session.delete(transaction)
-        db.session.commit()
-    if request.is_json:
-        return {"message": "Transaction removed."}, 200
-    flash("Transaction removed.", "info")
+    transaction = Transaction.query.filter_by(
+        id=transaction_id,
+        user_id=session["user_id"]
+    ).first()
+
+    if transaction is None:
+        flash("Transaction not found.", "danger")
+        return redirect(url_for("dashboard"))
+
+    db.session.delete(transaction)
+    db.session.commit()
+
+    flash("Transaction deleted successfully.", "success")
     return redirect(url_for("dashboard"))
 
 

@@ -10,7 +10,7 @@
       <h1>Your GBP budget overview</h1>
       <p>Quickly review income, expenses, and your current balance.</p>
     </div>
-    <a class="btn btn-primary" href="{{ url_for('add_transaction') }}">Add new entry</a>
+    <a class="btn btn-primary" href="{{ url_for('add_transaction_view') }}">Add new entry</a>
   </section>
 
   <section class="summary-row">
@@ -62,7 +62,7 @@
     {% else %}
     <div class="empty-state">
       <p>No entries yet. Add your first transaction to get started.</p>
-      <a class="btn btn-secondary" href="{{ url_for('add_transaction') }}">Add entry</a>
+      <a class="btn btn-secondary" href="{{ url_for('add_transaction_view') }}">Add entry</a>
     </div>
     {% endif %}
   </section>

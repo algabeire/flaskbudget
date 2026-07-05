@@ -15,7 +15,7 @@
         <nav>
           {% if session.user_id %}
           <a href="{{ url_for('dashboard') }}">Dashboard</a>
-          <a href="{{ url_for('add_transaction') }}">Add Entry</a>
+          <a href="{{ url_for('add_transaction_view') }}">Add Entry</a>
           <a href="{{ url_for('logout') }}" class="secondary">Logout</a>
           {% else %}
           <a href="{{ url_for('login') }}">Login</a>
