@@ -6,7 +6,7 @@
 <section class="form-card">
   <h1>Add a new transaction</h1>
   <p>Record income or expense entries in GBP £.</p>
-  <form method="post">
+  <form method="post" action="{{ url_for('add_transaction_view') }}">
     <label for="title">Title</label>
     <input id="title" name="title" type="text" required />
 

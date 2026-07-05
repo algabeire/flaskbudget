@@ -313,49 +313,52 @@ def edit_transaction(transaction_id):
     )
 
 
-@app.route("/add", methods=["POST"])
+@app.route("/add", methods=["GET", "POST"])
 @login_required
 def add_transaction_view():
-    title = request.form.get("title", "").strip()
-    amount = request.form.get("amount", "").strip()
-    category = request.form.get("category")
-    tx_type = request.form.get("type", "").lower()
-    description = request.form.get("description", "").strip()
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        amount = request.form.get("amount", "").strip()
+        category = request.form.get("category")
+        tx_type = request.form.get("type", "").lower()
+        description = request.form.get("description", "").strip()
 
-    if not title or not amount:
-        flash("Please enter a title and amount.", "warning")
+        if not title or not amount:
+            flash("Please enter a title and amount.", "warning")
+            return redirect(url_for("dashboard"))
+
+        if category not in CATEGORIES:
+            flash("Invalid category.", "danger")
+            return redirect(url_for("dashboard"))
+
+        if tx_type not in ("income", "expense"):
+            flash("Invalid transaction type.", "danger")
+            return redirect(url_for("dashboard"))
+
+        try:
+            amount_value = float(amount)
+            if amount_value <= 0:
+                raise ValueError
+        except ValueError:
+            flash("Please enter a valid amount greater than zero.", "danger")
+            return redirect(url_for("dashboard"))
+
+        transaction = Transaction(
+            user_id=session["user_id"],
+            title=title,
+            amount=amount_value,
+            category=category,
+            type=tx_type,
+            description=description,
+        )
+
+        db.session.add(transaction)
+        db.session.commit()
+
+        flash("Transaction added successfully.", "success")
         return redirect(url_for("dashboard"))
 
-    if category not in CATEGORIES:
-        flash("Invalid category.", "danger")
-        return redirect(url_for("dashboard"))
-
-    if tx_type not in ("income", "expense"):
-        flash("Invalid transaction type.", "danger")
-        return redirect(url_for("dashboard"))
-
-    try:
-        amount_value = float(amount)
-        if amount_value <= 0:
-            raise ValueError
-    except ValueError:
-        flash("Please enter a valid amount greater than zero.", "danger")
-        return redirect(url_for("dashboard"))
-
-    transaction = Transaction(
-        user_id=session["user_id"],
-        title=title,
-        amount=amount_value,
-        category=category,
-        type=tx_type,
-        description=description,
-    )
-
-    db.session.add(transaction)
-    db.session.commit()
-
-    flash("Transaction added successfully.", "success")
-    return redirect(url_for("dashboard"))
+    return render_template("add_expense.html", categories=CATEGORIES)
 
 
 @app.route("/delete/<int:transaction_id>", methods=["POST"])
