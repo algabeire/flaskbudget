@@ -18,11 +18,11 @@
       <p>Balance</p>
       <h2>{{ balance }}</h2>
     </div>
-    <div class="stat-card">
+    <div class="stat-card income-summary">
       <p>Total income</p>
       <h3>{{ income }}</h3>
     </div>
-    <div class="stat-card">
+    <div class="stat-card expense-summary">
       <p>Total expenses</p>
       <h3>{{ expense }}</h3>
     </div>
@@ -53,7 +53,9 @@
           <td class="amount {{ tx.type }}">{{ format_currency(tx.amount) }}</td>
           <td class="actions">
             <a class="link-button" href="{{ url_for('edit_transaction', transaction_id=tx.id) }}">Edit</a>
-            <a class="link-button danger" href="{{ url_for('delete_transaction', transaction_id=tx.id) }}">Delete</a>
+            <form method="post" action="{{ url_for('delete_transaction', transaction_id=tx.id) }}" style="display:inline;">
+              <button type="submit" class="link-button danger">Delete</button>
+            </form>
           </td>
         </tr>
         {% endfor %}
