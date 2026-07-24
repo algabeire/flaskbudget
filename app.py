@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import wraps
 
@@ -80,6 +80,27 @@ class Transaction(db.Model):
     )
 
 
+class BudgetCycle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False,
+        unique=True,
+    )
+    reset_day = db.Column(db.Integer, nullable=False, default=6)
+    last_reset_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    user = db.relationship(
+        "User",
+        backref=db.backref("budget_cycle", uselist=False, lazy=True),
+    )
+
+
 with app.app_context():
     print("\n--- DATABASE CONNECTED SUCCESSFULLY ---\n")
     db.create_all()
@@ -109,6 +130,53 @@ def login_required(view):
         return view(*args, **kwargs)
 
     return wrapped_view
+
+
+RESET_DAY = 6
+
+
+def get_cycle_start(reference_date):
+    if reference_date.day >= RESET_DAY:
+        return reference_date.replace(
+            day=RESET_DAY,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+    previous_month = reference_date.replace(day=1) - timedelta(days=1)
+    return previous_month.replace(
+        day=RESET_DAY,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def ensure_budget_cycle(user_id):
+    now = datetime.now(timezone.utc)
+    cycle_start = get_cycle_start(now)
+    cycle = BudgetCycle.query.filter_by(user_id=user_id).first()
+
+    if cycle is None:
+        cycle = BudgetCycle(
+            user_id=user_id,
+            reset_day=RESET_DAY,
+            last_reset_at=cycle_start,
+        )
+        db.session.add(cycle)
+        db.session.commit()
+        return False
+
+    if cycle.last_reset_at < cycle_start:
+        Transaction.query.filter_by(user_id=user_id).delete()
+        cycle.last_reset_at = cycle_start
+        db.session.commit()
+        return True
+
+    return False
 
 
 def format_currency(value):
@@ -189,6 +257,10 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    reset_happened = ensure_budget_cycle(session["user_id"])
+    if reset_happened:
+        flash("Budget restarted for the new monthly cycle.", "info")
+
     transactions = (
         Transaction.query
         .filter_by(user_id=session["user_id"])
