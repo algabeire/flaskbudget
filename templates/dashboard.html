@@ -9,6 +9,7 @@
       <p class="eyebrow">Hello, {{ session.username }}</p>
       <h1>Your GBP budget overview</h1>
       <p>Quickly review income, expenses, and your current balance.</p>
+      <p class="reset-note">Budget restarts on the 6th of every month.</p>
     </div>
     <a class="btn btn-primary" href="{{ url_for('add_transaction_view') }}">Add new entry</a>
   </section>

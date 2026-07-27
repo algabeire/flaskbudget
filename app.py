@@ -37,6 +37,23 @@ database_url = (
     or os.getenv("SQLALCHEMY_DATABASE_URI")
 )
 
+
+def should_use_remote_database():
+    if os.getenv("USE_REMOTE_DB", "").lower() in {"1", "true", "yes", "on"}:
+        return True
+
+    if os.getenv("FORCE_REMOTE_DB", "").lower() in {"1", "true", "yes", "on"}:
+        return True
+
+    if os.getenv("FLASK_ENV") == "production":
+        return True
+
+    return any(
+        os.getenv(name)
+        for name in ("RENDER", "HEROKU", "RAILWAY", "VERCEL")
+    )
+
+
 # Fix PostgreSQL URL used by Render/Heroku
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace(
@@ -45,24 +62,31 @@ if database_url and database_url.startswith("postgres://"):
         1,
     )
 
-app.config["SQLALCHEMY_DATABASE_URI"] = (
-    database_url
-    or f"sqlite:///{basedir / 'budget.db'}"
-)
+if should_use_remote_database() and database_url:
+    selected_database_url = database_url
+else:
+    selected_database_url = database_url or f"sqlite:///{basedir / 'budget.db'}"
+
+app.config["SQLALCHEMY_DATABASE_URI"] = selected_database_url
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
+
 class User(db.Model):
+    __tablename__ = "users"
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
 
 class Transaction(db.Model):
+    __tablename__ = "transactions"
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     title = db.Column(db.String(120), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(80), nullable=False)
@@ -84,7 +108,7 @@ class BudgetCycle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
         db.Integer,
-        db.ForeignKey("user.id"),
+        db.ForeignKey("users.id"),
         nullable=False,
         unique=True,
     )
@@ -135,7 +159,17 @@ def login_required(view):
 RESET_DAY = 6
 
 
+def normalize_datetime(value):
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 def get_cycle_start(reference_date):
+    reference_date = normalize_datetime(reference_date)
+
     if reference_date.day >= RESET_DAY:
         return reference_date.replace(
             day=RESET_DAY,
@@ -155,6 +189,21 @@ def get_cycle_start(reference_date):
     )
 
 
+def get_cycle_window(reference_date=None):
+    if reference_date is None:
+        reference_date = datetime.now(timezone.utc)
+
+    reference_date = normalize_datetime(reference_date)
+    cycle_start = get_cycle_start(reference_date)
+    cycle_end = reference_date.replace(
+        hour=23,
+        minute=59,
+        second=59,
+        microsecond=999999,
+    )
+    return cycle_start, cycle_end
+
+
 def ensure_budget_cycle(user_id):
     now = datetime.now(timezone.utc)
     cycle_start = get_cycle_start(now)
@@ -170,13 +219,27 @@ def ensure_budget_cycle(user_id):
         db.session.commit()
         return False
 
-    if cycle.last_reset_at < cycle_start:
-        Transaction.query.filter_by(user_id=user_id).delete()
-        cycle.last_reset_at = cycle_start
+    stored_last_reset_at = normalize_datetime(cycle.last_reset_at)
+    current_cycle_start = normalize_datetime(cycle_start)
+
+    if stored_last_reset_at < current_cycle_start:
+        cycle.last_reset_at = current_cycle_start
         db.session.commit()
         return True
 
     return False
+
+
+def get_user_transactions(user_id, start_date=None, end_date=None):
+    query = Transaction.query.filter_by(user_id=user_id)
+
+    if start_date is not None:
+        query = query.filter(Transaction.date >= start_date)
+
+    if end_date is not None:
+        query = query.filter(Transaction.date <= end_date)
+
+    return query.order_by(Transaction.date.desc()).all()
 
 
 def format_currency(value):
@@ -261,51 +324,25 @@ def dashboard():
     if reset_happened:
         flash("Budget restarted for the new monthly cycle.", "info")
 
-    transactions = (
-        Transaction.query
-        .filter_by(user_id=session["user_id"])
-        .order_by(Transaction.date.desc())
-        .all()
-    )
+    cycle_start, cycle_end = get_cycle_window()
 
-    summary = (
-        db.session.query(
-            Transaction.type,
-            func.sum(Transaction.amount).label("total")
-        )
-        .filter_by(user_id=session["user_id"])
-        .group_by(Transaction.type)
-        .all()
-    )
-
-    category_rows = (
-        db.session.query(
-            Transaction.category,
-            func.sum(Transaction.amount).label("total")
-        )
-        .filter_by(
-            user_id=session["user_id"],
-            type="expense"
-        )
-        .group_by(Transaction.category)
-        .order_by(func.sum(Transaction.amount).desc())
-        .all()
+    transactions = get_user_transactions(
+        session["user_id"],
+        cycle_start,
+        cycle_end,
     )
 
     income = 0.0
     expense = 0.0
-
-    for tx_type, total in summary:
-        if tx_type == "income":
-            income = total or 0.0
-        elif tx_type == "expense":
-            expense = total or 0.0
-
-    balance = income - expense
-
     monthly = {}
+    category_totals = {}
 
     for tx in transactions:
+        if tx.type == "income":
+            income += tx.amount
+        elif tx.type == "expense":
+            expense += tx.amount
+
         month = tx.date.strftime("%b %Y")
         monthly.setdefault(month, 0.0)
 
@@ -313,6 +350,17 @@ def dashboard():
             monthly[month] += tx.amount
         else:
             monthly[month] -= tx.amount
+
+        if tx.type == "expense":
+            category_totals[tx.category] = category_totals.get(tx.category, 0.0) + tx.amount
+
+    balance = income - expense
+
+    category_rows = sorted(
+        category_totals.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )
 
     category_labels = [row[0] for row in category_rows]
     category_values = [float(row[1] or 0) for row in category_rows]

@@ -116,6 +116,19 @@ nav a:hover {
   line-height: 1.8;
 }
 
+.reset-note {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(109, 231, 184, 0.12);
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .hero-actions {
   display: flex;
   gap: 12px;
